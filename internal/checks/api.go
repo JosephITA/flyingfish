@@ -76,7 +76,7 @@ func apiChecks() []engine.Check {
 			},
 		},
 		{
-			ID: "API-01", Name: "Provider API server reachable (control plane)", Layer: "api", DependsOn: []string{"ENV-03"},
+			ID: "API-01", Name: "Provider API server reachable (TCP/TLS from this machine)", Layer: "api", DependsOn: []string{"ENV-03"},
 			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
 				eps, err := identityEndpoints(ctx, c, cl(c.Local))
 				if err != nil {
@@ -87,6 +87,8 @@ func apiChecks() []engine.Check {
 				}
 				var down, up []string
 				for _, ep := range eps {
+					c.AddFact("provider API server (TCP/TLS)", ep.server,
+						fmt.Sprintf("curl -k --max-time 5 %s/version", ep.server))
 					if err := dialTLS(ctx, ep.server); err != nil {
 						down = append(down, fmt.Sprintf("%s (%s): %v", ep.server, ep.secret, err))
 					} else {

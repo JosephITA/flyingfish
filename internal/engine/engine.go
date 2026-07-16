@@ -55,6 +55,34 @@ type Ctx struct {
 
 	mu    sync.Mutex
 	cache map[string]any
+	facts []Fact
+}
+
+// Fact is a concrete, copy-pasteable piece of connectivity information
+// (an IP, an endpoint, a CIDR) with an optional manual test command.
+type Fact struct {
+	Label   string `json:"label"`
+	Value   string `json:"value"`
+	Command string `json:"command,omitempty"`
+}
+
+// AddFact records a fact for the end-of-report cheat sheet. Duplicate
+// label+value pairs are dropped.
+func (c *Ctx) AddFact(label, value, command string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, f := range c.facts {
+		if f.Label == label && f.Value == value {
+			return
+		}
+	}
+	c.facts = append(c.facts, Fact{Label: label, Value: value, Command: command})
+}
+
+func (c *Ctx) Facts() []Fact {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]Fact(nil), c.facts...)
 }
 
 // Cluster is the minimal surface checks need; satisfied by kube.Cluster.

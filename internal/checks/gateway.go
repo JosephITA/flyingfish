@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/JosephITA/flyingfish/internal/engine"
 	"github.com/JosephITA/flyingfish/internal/kube"
@@ -115,6 +116,11 @@ func gatewayChecks() []engine.Check {
 						continue
 					}
 					evidence = append(evidence, fmt.Sprintf("%s advertises %v:%d", crName(gw), addrs, port))
+					for _, a := range addrs {
+						c.AddFact("gateway server endpoint (WireGuard, UDP)",
+							fmt.Sprintf("%s:%d", a, port),
+							fmt.Sprintf("nc -vzu %s %d   # UDP: no ICMP-unreachable = port likely open", a, port))
+					}
 				}
 				if len(problems) > 0 {
 					return fail("GatewayServer has no advertised endpoint — clients have nothing valid to dial",
@@ -137,6 +143,48 @@ func gatewayChecks() []engine.Check {
 					return *res
 				}
 				return skip("no GatewayClient/GatewayServer pair found across the two clusters")
+			},
+		},
+		{
+			ID: "GW-05", Name: "Gateway UDP port reachable from this machine", Layer: "gateway", DependsOn: []string{"GW-03"},
+			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
+				k := cl(c.Local)
+				gws, err := listCR(ctx, c, k, groupNet, "gatewayservers")
+				if err != nil || len(gws) == 0 {
+					return skip("no GatewayServer on this cluster (nothing to probe)")
+				}
+				var refused, silent, responded, evidence []string
+				for _, gw := range gws {
+					port, hasPort := nestedInt(gw.Object, "status", "endpoint", "port")
+					if !hasPort {
+						continue
+					}
+					for _, a := range extractStrings(nestedAny(gw.Object, "status", "endpoint", "addresses")) {
+						addr := fmt.Sprintf("%s:%d", a, port)
+						state, perr := netutil.ProbeUDP(addr, 3*time.Second)
+						evidence = append(evidence, fmt.Sprintf("udp probe %s → %s", addr, state))
+						switch state {
+						case netutil.UDPRefused:
+							refused = append(refused, addr)
+						case netutil.UDPResponded:
+							responded = append(responded, addr)
+						case netutil.UDPError:
+							evidence = append(evidence, fmt.Sprintf("  probe error: %v", perr))
+						default:
+							silent = append(silent, addr)
+						}
+					}
+				}
+				if len(refused) > 0 {
+					return fail("gateway UDP endpoint actively refused (ICMP port unreachable) — nothing is listening there from this network's viewpoint",
+						"the advertised endpoint is wrong or a firewall/LB rejects UDP; verify the Service and any NAT in front of it",
+						evidence...)
+				}
+				if len(silent)+len(responded) == 0 {
+					return skip("no advertised endpoints to probe")
+				}
+				return pass("no ICMP-unreachable from the gateway endpoint (WireGuard is silent by design, so this proves the path does not actively reject UDP; TUN-02's handshake is the definitive proof)",
+					evidence...)
 			},
 		},
 		{

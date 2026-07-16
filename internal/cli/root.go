@@ -114,7 +114,7 @@ func runCheck(cmd *cobra.Command, o *options) error {
 
 	if o.format == "json" {
 		results := engine.Run(cmd.Context(), ctx, checks.All(), nil)
-		if err := output.JSON(cmd.OutOrStdout(), results, version()); err != nil {
+		if err := output.JSON(cmd.OutOrStdout(), results, ctx.Facts(), version()); err != nil {
 			return err
 		}
 		os.Exit(output.ExitCode(results))
@@ -124,6 +124,7 @@ func runCheck(cmd *cobra.Command, o *options) error {
 	r := output.NewRenderer(cmd.OutOrStdout(), color, o.verbose)
 	r.Banner(local.Name, remoteName, version())
 	results := engine.Run(cmd.Context(), ctx, checks.All(), r.Emit)
+	r.FactSheet(ctx.Facts())
 	r.Summary(results)
 	os.Exit(output.ExitCode(results))
 	return nil

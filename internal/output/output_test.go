@@ -29,6 +29,7 @@ func TestRendererShowsDiagnosisAndRemediation(t *testing.T) {
 	for _, res := range sample() {
 		r.Emit(res)
 	}
+	r.FactSheet([]engine.Fact{{Label: "gateway endpoint", Value: "1.2.3.4:51840", Command: "nc -vzu 1.2.3.4 51840"}})
 	r.Summary(sample())
 	out := buf.String()
 	for _, want := range []string{"GATEWAY EXPOSURE", "GW-02", "diagnosis", "LoadBalancer pending", "1 passed", "1 failed"} {
@@ -41,7 +42,8 @@ func TestRendererShowsDiagnosisAndRemediation(t *testing.T) {
 
 func TestJSONContract(t *testing.T) {
 	var buf bytes.Buffer
-	if err := JSON(&buf, sample(), "test"); err != nil {
+	facts := []engine.Fact{{Label: "gateway endpoint", Value: "1.2.3.4:51840", Command: "nc -vzu 1.2.3.4 51840"}}
+	if err := JSON(&buf, sample(), facts, "test"); err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {

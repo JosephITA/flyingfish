@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/JosephITA/flyingfish/internal/engine"
+	"github.com/JosephITA/flyingfish/internal/kube"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -85,6 +86,40 @@ func tunnelChecks() []engine.Check {
 			},
 		},
 		{
+			ID: "MTU-01", Name: "Tunnel MTU consistent", Layer: "tunnel", DependsOn: []string{"GW-01"},
+			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
+				localMTUs, evLocal := tunnelMTUs(ctx, c, cl(c.Local))
+				evidence := evLocal
+				if len(localMTUs) == 0 {
+					return warn("could not read the tunnel interface MTU from any gateway pod", "", evidence...)
+				}
+				for _, m := range localMTUs {
+					c.AddFact("tunnel MTU", fmt.Sprintf("%d", m),
+						fmt.Sprintf("ping -c1 -M do -s %d <remote-pod-ip>   # run inside a pod; largest payload that must pass", m-28))
+				}
+				if c.Dual() {
+					remoteMTUs, evRemote := tunnelMTUs(ctx, c, cl(c.Remote))
+					evidence = append(evidence, evRemote...)
+					if len(remoteMTUs) > 0 && !sameInts(localMTUs, remoteMTUs) {
+						return fail(fmt.Sprintf("tunnel MTU mismatch between clusters: local %v vs remote %v — Liqo requires the same value on both sides", localMTUs, remoteMTUs),
+							"set the same --mtu on both sides (liqoctl peer/network connect, default 1340) and recreate the connection",
+							evidence...)
+					}
+				}
+				for _, m := range localMTUs {
+					if m < 1280 {
+						return warn(fmt.Sprintf("tunnel MTU %d is unusually low — expect heavy fragmentation and poor throughput", m),
+							"check the underlay path MTU; WireGuard overhead is 60B (IPv4) / 80B (IPv6) below the physical MTU", evidence...)
+					}
+				}
+				detail := fmt.Sprintf("tunnel interface MTU %v", localMTUs)
+				if !c.Dual() {
+					detail += " (single-cluster mode: cannot verify the peer uses the same value — Liqo requires it)"
+				}
+				return pass(detail, evidence...)
+			},
+		},
+		{
 			ID: "TUN-05", Name: "Tunnel latency within bounds", Layer: "tunnel", DependsOn: []string{"TUN-01"},
 			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
 				k := cl(c.Local)
@@ -114,6 +149,50 @@ func tunnelChecks() []engine.Check {
 			},
 		},
 	}
+}
+
+// tunnelMTUs reads the MTU of every WireGuard interface inside the gateway
+// pods of one cluster (via `wg show interfaces` + /sys/class/net/<if>/mtu).
+func tunnelMTUs(ctx context.Context, c *engine.Ctx, k *kube.Cluster) ([]int, []string) {
+	var mtus []int
+	var evidence []string
+	pods, err := gatewayPods(ctx, c, k)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("%s: cannot list gateway pods: %v", k.Name, err)}
+	}
+	for _, p := range pods {
+		ctr := wgContainer(p.Spec.Containers)
+		ifaces, err := k.Exec(ctx, p.Namespace, p.Name, ctr, []string{"wg", "show", "interfaces"})
+		if err != nil {
+			evidence = append(evidence, fmt.Sprintf("%s %s/%s: %v", k.Name, p.Namespace, p.Name, err))
+			continue
+		}
+		for _, iface := range strings.Fields(ifaces) {
+			out, err := k.Exec(ctx, p.Namespace, p.Name, ctr, []string{"cat", "/sys/class/net/" + iface + "/mtu"})
+			if err != nil {
+				evidence = append(evidence, fmt.Sprintf("%s %s/%s: reading %s mtu: %v", k.Name, p.Namespace, p.Name, iface, err))
+				continue
+			}
+			if m, err := strconv.Atoi(strings.TrimSpace(out)); err == nil {
+				mtus = append(mtus, m)
+				evidence = append(evidence, fmt.Sprintf("%s %s/%s: interface %s mtu %d", k.Name, p.Namespace, p.Name, iface, m))
+			}
+		}
+	}
+	return mtus, evidence
+}
+
+func sameInts(a, b []int) bool {
+	set := map[int]bool{}
+	for _, x := range a {
+		set[x] = true
+	}
+	for _, y := range b {
+		if !set[y] {
+			return false
+		}
+	}
+	return len(set) > 0
 }
 
 // wgContainer picks the WireGuard container of a gateway pod, falling back to

@@ -95,6 +95,20 @@ func (r *Renderer) Emit(res engine.Result) {
 	}
 }
 
+// FactSheet prints the copy-pasteable connectivity facts gathered by checks.
+func (r *Renderer) FactSheet(facts []engine.Fact) {
+	if len(facts) == 0 {
+		return
+	}
+	fmt.Fprintf(r.W, "\n %sMANUAL TEST CHEAT SHEET%s\n", r.p.bold, r.p.reset)
+	for _, f := range facts {
+		fmt.Fprintf(r.W, "  %s%-46s%s %s%s%s\n", r.p.dim, f.Label, r.p.reset, r.p.bold, f.Value, r.p.reset)
+		if f.Command != "" {
+			fmt.Fprintf(r.W, "    %s$ %s%s\n", r.p.cyan, f.Command, r.p.reset)
+		}
+	}
+}
+
 // Summary prints counters and the primary diagnosis.
 func (r *Renderer) Summary(results []engine.Result) {
 	var pass, warnN, failN, skipN int
@@ -165,7 +179,7 @@ func wrapIndent(s string, indent int) string {
 }
 
 // JSON emits the machine-readable contract (spec §6).
-func JSON(w io.Writer, results []engine.Result, version string) error {
+func JSON(w io.Writer, results []engine.Result, facts []engine.Fact, version string) error {
 	type summary struct {
 		Pass, Warn, Fail, Skip int
 	}
@@ -185,6 +199,7 @@ func JSON(w io.Writer, results []engine.Result, version string) error {
 	payload := map[string]any{
 		"version":   version,
 		"results":   results,
+		"facts":     facts,
 		"summary":   s,
 		"diagnosis": engine.Diagnosis(results),
 	}

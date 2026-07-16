@@ -36,6 +36,10 @@ func ipamChecks() []engine.Check {
 						fmt.Sprintf("%s — %s, %s", crName(cfg),
 							netutil.HumanList("local", localCIDRs),
 							netutil.HumanList("peer remapped", remapped)))
+					for _, r := range remapped {
+						c.AddFact("peer CIDR as seen from this cluster (remapped)", r,
+							"ping -c1 <ip-in-this-range>   # run inside a local pod; keep the remote pod's host bits, swap the prefix")
+					}
 
 					// The whole point of remapping is that the peer's remapped view
 					// must not intersect anything real on this side.
