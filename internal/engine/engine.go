@@ -70,17 +70,24 @@ func NewCtx(local, remote Cluster, peer string, timeout time.Duration) *Ctx {
 func (c *Ctx) Dual() bool { return c.Remote != nil && !c.Remote.IsNil() }
 
 // Memo caches expensive lookups (tenant namespaces, CR lists) across checks.
+// The lock is NOT held while fn runs: memoized loaders call other memoized
+// loaders (e.g. identity secrets → tenant namespaces), which would deadlock
+// on a held mutex. Duplicate computation on a cold cache is acceptable.
 func Memo[T any](c *Ctx, key string, fn func() (T, error)) (T, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if v, ok := c.cache[key]; ok {
 		if cached, ok := v.(memoEntry[T]); ok {
+			c.mu.Unlock()
 			return cached.val, cached.err
 		}
 	}
-	var val T
+	c.mu.Unlock()
+
 	val, err := fn()
+
+	c.mu.Lock()
 	c.cache[key] = memoEntry[T]{val, err}
+	c.mu.Unlock()
 	return val, err
 }
 

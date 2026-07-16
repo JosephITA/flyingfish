@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -26,8 +27,9 @@ type Cluster struct {
 	Dynamic    dynamic.Interface
 	Discovery  discovery.DiscoveryInterface
 
-	mu   sync.Mutex
-	gvrs map[string]schema.GroupVersionResource
+	mu        sync.Mutex
+	gvrs      map[string]schema.GroupVersionResource
+	preferred []*metav1.APIResourceList // cached full discovery, fetched once
 }
 
 func (c *Cluster) DisplayName() string { return c.Name }
@@ -46,6 +48,11 @@ func Connect(kubeconfig, contextName, label string) (*Cluster, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig for %s cluster: %w", label, err)
 	}
+	// Diagnostics issue many small reads; the client-go defaults (QPS 5) make
+	// discovery alone take tens of seconds and checks time out.
+	cfg.QPS = 50
+	cfg.Burst = 100
+	cfg.Timeout = 20 * time.Second
 	name := contextName
 	if name == "" {
 		if raw, err := loader.RawConfig(); err == nil {
@@ -83,12 +90,19 @@ func (c *Cluster) GVR(group, resource string) (schema.GroupVersionResource, erro
 		c.mu.Unlock()
 		return gvr, nil
 	}
+	lists := c.preferred
 	c.mu.Unlock()
 
-	lists, err := c.Discovery.ServerPreferredResources()
-	// Partial discovery failures are common (broken aggregated APIs); use what we got.
-	if lists == nil && err != nil {
-		return schema.GroupVersionResource{}, err
+	if lists == nil {
+		var err error
+		lists, err = c.Discovery.ServerPreferredResources()
+		// Partial discovery failures are common (broken aggregated APIs); use what we got.
+		if lists == nil && err != nil {
+			return schema.GroupVersionResource{}, err
+		}
+		c.mu.Lock()
+		c.preferred = lists
+		c.mu.Unlock()
 	}
 	for _, list := range lists {
 		gv, gvErr := schema.ParseGroupVersion(list.GroupVersion)

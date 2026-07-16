@@ -77,7 +77,9 @@ func fabricChecks() []engine.Check {
 				hasClamp := false
 				var evidence []string
 				for _, fw := range fws {
-					if strings.Contains(fw.GetName(), "mssclamp") {
+					// Matches both "mssclamp" (chart template name) and the
+					// deployed "gw-mss-clamping" resource.
+					if strings.Contains(strings.ReplaceAll(fw.GetName(), "-", ""), "mssclamp") {
 						hasClamp = true
 					}
 					evidence = append(evidence, crName(fw))

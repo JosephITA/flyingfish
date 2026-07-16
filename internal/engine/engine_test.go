@@ -57,6 +57,26 @@ func TestDiagnosisPicksFirstFailInLayerOrder(t *testing.T) {
 	}
 }
 
+func TestMemoSupportsNestedCalls(t *testing.T) {
+	c := NewCtx(fakeCluster("local"), nil, "", time.Second)
+	done := make(chan string, 1)
+	go func() {
+		outer, _ := Memo(c, "outer", func() (string, error) {
+			inner, _ := Memo(c, "inner", func() (string, error) { return "in", nil })
+			return "out-" + inner, nil
+		})
+		done <- outer
+	}()
+	select {
+	case got := <-done:
+		if got != "out-in" {
+			t.Fatalf("got %q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("nested Memo deadlocked")
+	}
+}
+
 func TestCheckTimeout(t *testing.T) {
 	c := NewCtx(fakeCluster("local"), nil, "", 50*time.Millisecond)
 	chk := Check{
