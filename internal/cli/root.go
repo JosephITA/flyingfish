@@ -4,6 +4,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/JosephITA/flyingfish/internal/checks"
@@ -13,8 +14,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Version is injected at build time via -ldflags.
+// Version is injected at build time via -ldflags; when absent (plain
+// `go install module@version`), the module version from build info is used.
 var Version = "dev"
+
+func version() string {
+	if Version != "dev" {
+		return Version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return Version
+}
 
 type options struct {
 	kubeconfig, kubecontext             string
@@ -52,7 +64,7 @@ func newVersion() *cobra.Command {
 		Use:   "version",
 		Short: "Print the flyingfish version",
 		Run: func(cmd *cobra.Command, _ []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), "flyingfish", Version)
+			fmt.Fprintln(cmd.OutOrStdout(), "flyingfish", version())
 		},
 	}
 }
@@ -102,7 +114,7 @@ func runCheck(cmd *cobra.Command, o *options) error {
 
 	if o.format == "json" {
 		results := engine.Run(cmd.Context(), ctx, checks.All(), nil)
-		if err := output.JSON(cmd.OutOrStdout(), results, Version); err != nil {
+		if err := output.JSON(cmd.OutOrStdout(), results, version()); err != nil {
 			return err
 		}
 		os.Exit(output.ExitCode(results))
@@ -110,7 +122,7 @@ func runCheck(cmd *cobra.Command, o *options) error {
 
 	color := output.ColorEnabled() && !o.noColor
 	r := output.NewRenderer(cmd.OutOrStdout(), color, o.verbose)
-	r.Banner(local.Name, remoteName, Version)
+	r.Banner(local.Name, remoteName, version())
 	results := engine.Run(cmd.Context(), ctx, checks.All(), r.Emit)
 	r.Summary(results)
 	os.Exit(output.ExitCode(results))
