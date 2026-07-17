@@ -13,5 +13,6 @@ func All() []engine.Check {
 	out = append(out, ipamChecks()...)
 	out = append(out, cniChecks()...)
 	out = append(out, reflectionChecks()...)
+	out = append(out, offloadingUsageChecks()...)
 	return out
 }

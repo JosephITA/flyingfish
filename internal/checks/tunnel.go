@@ -86,6 +86,80 @@ func tunnelChecks() []engine.Check {
 			},
 		},
 		{
+			ID: "TUN-06", Name: "Tunnel uptime & data activity", Layer: "tunnel", DependsOn: []string{"GW-01"},
+			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
+				k := cl(c.Local)
+				now := time.Now()
+				var evidence []string
+
+				conns, _ := listCR(ctx, c, k, groupNet, "connections")
+				for _, conn := range conns {
+					age := now.Sub(conn.GetCreationTimestamp().Time)
+					evidence = append(evidence, fmt.Sprintf("%s: connection resource created %s ago", crName(conn), humanDuration(age)))
+					c.AddFact("tunnel resource age ("+conn.GetName()+")", humanDuration(age), "")
+					for _, cond := range conditionsAt(conn.Object, "status", "conditions") {
+						if cond.HasTransition {
+							evidence = append(evidence, fmt.Sprintf("  condition %s=%s for %s", cond.Type, cond.Status, humanDuration(now.Sub(cond.LastTransition))))
+						}
+					}
+				}
+
+				pods, err := gatewayPods(ctx, c, k)
+				if err != nil || len(pods) == 0 {
+					if len(evidence) == 0 {
+						return skip("no gateway pods or connections to inspect")
+					}
+					return pass("tunnel resource age reported (gateway pods unavailable for traffic counters)", evidence...)
+				}
+
+				var totalRx, totalTx int64
+				var haveCounters bool
+				for _, p := range pods {
+					start := p.CreationTimestamp.Time
+					if p.Status.StartTime != nil {
+						start = p.Status.StartTime.Time
+					}
+					uptime := now.Sub(start)
+					evidence = append(evidence, fmt.Sprintf("%s/%s: gateway pod running for %s", p.Namespace, p.Name, humanDuration(uptime)))
+					c.AddFact("gateway pod uptime ("+p.Name+")", humanDuration(uptime),
+						fmt.Sprintf("kubectl -n %s get pod %s", p.Namespace, p.Name))
+
+					out, err := k.Exec(ctx, p.Namespace, p.Name, wgContainer(p.Spec.Containers), []string{"wg", "show", "all", "transfer"})
+					if err != nil {
+						evidence = append(evidence, fmt.Sprintf("  transfer counters unavailable: %v", err))
+						continue
+					}
+					for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+						fields := strings.Fields(line)
+						if len(fields) < 2 {
+							continue
+						}
+						rx, errR := strconv.ParseInt(fields[len(fields)-2], 10, 64)
+						tx, errT := strconv.ParseInt(fields[len(fields)-1], 10, 64)
+						if errR == nil && errT == nil {
+							totalRx += rx
+							totalTx += tx
+							haveCounters = true
+						}
+					}
+				}
+
+				if !haveCounters {
+					return warn("could not read WireGuard traffic counters", "verify RBAC for pods/exec and the wireguard container name", evidence...)
+				}
+				c.AddFact("tunnel data exchanged (rx/tx)", fmt.Sprintf("%s / %s", humanBytes(totalRx), humanBytes(totalTx)), "")
+				evidence = append(evidence, fmt.Sprintf("total: %s received, %s sent (since the gateway pod last started — counters reset on restart)",
+					humanBytes(totalRx), humanBytes(totalTx)))
+
+				if totalRx == 0 && totalTx == 0 {
+					return warn("tunnel is connected but zero bytes have been exchanged since the gateway pod started",
+						"either the peering is brand new, idle, or genuinely unused — this alone doesn't mean it's broken (TUN-01/TUN-02 already cover liveness); confirm with an actual pod-to-pod test if you expected traffic",
+						evidence...)
+				}
+				return pass(fmt.Sprintf("tunnel active: %s received / %s sent", humanBytes(totalRx), humanBytes(totalTx)), evidence...)
+			},
+		},
+		{
 			ID: "MTU-01", Name: "Tunnel MTU consistent", Layer: "tunnel", DependsOn: []string{"GW-01"},
 			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
 				localMTUs, evLocal := tunnelMTUs(ctx, c, cl(c.Local))

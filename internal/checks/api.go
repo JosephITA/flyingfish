@@ -76,6 +76,55 @@ func apiChecks() []engine.Check {
 			},
 		},
 		{
+			ID: "FC-02", Name: "Peering age & module status duration", Layer: "api", DependsOn: []string{"ENV-03"},
+			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
+				k := cl(c.Local)
+				fcs, err := listCR(ctx, c, k, groupCore, "foreignclusters")
+				if err != nil {
+					return warn("cannot list foreignclusters: "+err.Error(), "")
+				}
+				now := time.Now()
+				var evidence []string
+				var seen int
+				longUnhealthy := false
+				for _, fc := range fcs {
+					if c.Peer != "" && fc.GetName() != c.Peer {
+						continue
+					}
+					seen++
+					age := now.Sub(fc.GetCreationTimestamp().Time)
+					evidence = append(evidence, fmt.Sprintf("%s: peering created %s ago (%s)",
+						fc.GetName(), humanDuration(age), fc.GetCreationTimestamp().Time.Format(time.RFC3339)))
+					c.AddFact("peering age ("+fc.GetName()+")", humanDuration(age),
+						fmt.Sprintf("kubectl get foreignclusters %s -o jsonpath='{.metadata.creationTimestamp}'", fc.GetName()))
+
+					modules, _ := nestedAny(fc.Object, "status", "modules").(map[string]any)
+					for mod, v := range modules {
+						vm, _ := v.(map[string]any)
+						for _, cond := range conditionsAt(vm, "conditions") {
+							if !cond.HasTransition {
+								evidence = append(evidence, fmt.Sprintf("  module %s: %s=%s (transition time unknown)", mod, cond.Type, cond.Status))
+								continue
+							}
+							since := now.Sub(cond.LastTransition)
+							evidence = append(evidence, fmt.Sprintf("  module %s: %s=%s for %s", mod, cond.Type, cond.Status, humanDuration(since)))
+							if !isHealthyCondition(cond.Status) && since > time.Hour {
+								longUnhealthy = true
+							}
+						}
+					}
+				}
+				if seen == 0 {
+					return skip("no ForeignCluster to report on")
+				}
+				if longUnhealthy {
+					return warn("a module condition has been unhealthy for over an hour — unlikely to self-resolve",
+						"see FC-01 for which module and why; this check only adds how long it's been stuck", evidence...)
+				}
+				return pass(fmt.Sprintf("peering age and module status duration for %d ForeignCluster(s)", seen), evidence...)
+			},
+		},
+		{
 			ID: "API-01", Name: "Provider API server reachable (TCP/TLS from this machine)", Layer: "api", DependsOn: []string{"ENV-03"},
 			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
 				eps, err := identityEndpoints(ctx, c, cl(c.Local))

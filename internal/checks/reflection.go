@@ -3,6 +3,7 @@ package checks
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/JosephITA/flyingfish/internal/engine"
 	"github.com/JosephITA/flyingfish/internal/netutil"
@@ -82,6 +83,53 @@ func reflectionChecks() []engine.Check {
 						notReady...)
 				}
 				return pass(fmt.Sprintf("%d virtual node(s) Ready", len(nodes.Items)))
+			},
+		},
+	}
+}
+
+func offloadingUsageChecks() []engine.Check {
+	return []engine.Check{
+		{
+			ID: "REF-03", Name: "Offloading usage (virtual node age & workload count)", Layer: "reflection",
+			DependsOn: []string{"REF-02"},
+			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
+				k := cl(c.Local)
+				nodes, err := k.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: "liqo.io/type=virtual-node"})
+				if err != nil {
+					return warn("cannot list virtual nodes: "+err.Error(), "")
+				}
+				if len(nodes.Items) == 0 {
+					return skip("no virtual nodes (offloading module not active on this side)")
+				}
+				now := time.Now()
+				var evidence []string
+				var idle []string
+				for _, n := range nodes.Items {
+					age := now.Sub(n.CreationTimestamp.Time)
+					pods, err := k.Clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{FieldSelector: "spec.nodeName=" + n.Name})
+					running := 0
+					total := 0
+					if err == nil {
+						total = len(pods.Items)
+						for _, p := range pods.Items {
+							if p.Status.Phase == corev1.PodRunning {
+								running++
+							}
+						}
+					}
+					evidence = append(evidence, fmt.Sprintf("%s: age %s, %d pod(s) scheduled (%d running)", n.Name, humanDuration(age), total, running))
+					c.AddFact("virtual node age ("+n.Name+")", humanDuration(age), "kubectl get node "+n.Name)
+					if age > time.Hour && running == 0 {
+						idle = append(idle, n.Name)
+					}
+				}
+				if len(idle) > 0 {
+					return warn("virtual node(s) Ready but no pods currently scheduled on them",
+						"the peering's data plane may be healthy but nothing is being offloaded right now — expected if you haven't deployed offloaded workloads yet",
+						evidence...)
+				}
+				return pass(fmt.Sprintf("%d virtual node(s) actively running workloads", len(nodes.Items)), evidence...)
 			},
 		},
 	}

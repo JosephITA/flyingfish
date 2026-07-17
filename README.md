@@ -61,13 +61,13 @@ flyingfish check --peer milan -o json
 | Layer | Checks | Catches |
 |---|---|---|
 | Environment | Liqo components, CRDs, versions, kernel ≥ 5.10, stale peering debris | broken/partial installs, unsupported version mixes |
-| Control plane | ForeignCluster module conditions, provider API reachability, in-band proxy, identity certificate expiry | auth failures that masquerade as network failures |
+| Control plane | ForeignCluster module conditions, **peering age & per-module condition duration**, provider API reachability, in-band proxy, identity certificate expiry | auth failures that masquerade as network failures; how long a module has actually been unhealthy vs. how old the peering is |
 | Gateway exposure | gateway pods, LoadBalancer/NodePort exposure, advertised vs. actual endpoint, client↔server endpoint match, live UDP probe of the endpoint | `<pending>` LBs, UDP-less cloud LBs, private-only NodePorts, stale endpoints, actively-refused UDP |
-| Tunnel | Connection state, live WireGuard handshake age (via `wg show` in the gateway pod), tunnel interface MTU (compared across clusters in dual mode), latency | blocked UDP ports, stale keys after re-peering, expired NAT mappings, MTU mismatches |
+| Tunnel | Connection state, live WireGuard handshake age (via `wg show` in the gateway pod), **tunnel/gateway-pod uptime and real traffic byte counters**, tunnel interface MTU (compared across clusters in dual mode), latency | blocked UDP ports, stale keys after re-peering, expired NAT mappings, MTU mismatches, a tunnel that's "Connected" but has never moved a byte |
 | Fabric | per-node fabric agent, InternalNode wiring, firewall configs incl. MSS clamping | "pods on node X work, node Y doesn't", MTU-style hangs |
 | IPAM | remapped peer CIDRs vs. local pod/node networks, IP allocations | remap collisions that silently blackhole traffic |
 | CNI | Calico interface autodetection, Cilium kube-proxy replacement, NetworkPolicies vs. remapped CIDRs | CNI features that bypass or drop Liqo's traffic |
-| Reflection | reflected EndpointSlice reachability, virtual node readiness | DNS that resolves to unreachable endpoints |
+| Reflection | reflected EndpointSlice reachability, virtual node readiness, **virtual node age & actual scheduled/running workload count** | DNS that resolves to unreachable endpoints; a peering that's technically Ready but has nothing running on it |
 
 Passive by default — FlyingFish only **reads** cluster state (plus `wg show` inside existing gateway pods and harmless UDP probe packets toward the gateway endpoint). It never modifies Liqo resources.
 
