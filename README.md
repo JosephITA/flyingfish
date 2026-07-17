@@ -15,6 +15,9 @@
       · liqo-tenant-milan/gw-milan: LoadBalancer stuck <pending>
       ⚑ LoadBalancer pending → no LB controller, or your cloud LB cannot do UDP
 
+ ────────────────────────────────────────
+ 22 passed ⋅ 0 warnings ⋅ 1 failed ⋅ 0 skipped (4.8s)
+
  diagnosis ✗ GW-02 [GATEWAY EXPOSURE]: gateway server service is not exposed
 ```
 
@@ -66,7 +69,7 @@ flyingfish check --peer milan -o json
 | Tunnel | Connection state, live WireGuard handshake age (via `wg show` in the gateway pod), **tunnel/gateway-pod uptime and real traffic byte counters**, tunnel interface MTU (compared across clusters in dual mode), latency | blocked UDP ports, stale keys after re-peering, expired NAT mappings, MTU mismatches, a tunnel that's "Connected" but has never moved a byte |
 | Fabric | per-node fabric agent, InternalNode wiring, firewall configs incl. MSS clamping | "pods on node X work, node Y doesn't", MTU-style hangs |
 | IPAM | remapped peer CIDRs vs. local pod/node networks, IP allocations | remap collisions that silently blackhole traffic |
-| CNI | Calico interface autodetection, Cilium kube-proxy replacement, NetworkPolicies vs. remapped CIDRs | CNI features that bypass or drop Liqo's traffic |
+| CNI | Calico interface autodetection, Cilium kube-proxy replacement, NetworkPolicies vs. remapped CIDRs, **honest fingerprinting** | CNI features that bypass or drop Liqo's traffic; if the CNI can't be identified it warns and hands you the raw kube-system daemonset names rather than silently passing |
 | Reflection | reflected EndpointSlice reachability, virtual node readiness, **virtual node age & actual scheduled/running workload count** | DNS that resolves to unreachable endpoints; a peering that's technically Ready but has nothing running on it |
 
 Passive by default — FlyingFish only **reads** cluster state (plus `wg show` inside existing gateway pods and harmless UDP probe packets toward the gateway endpoint). It never modifies Liqo resources.
