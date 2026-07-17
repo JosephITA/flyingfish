@@ -124,14 +124,16 @@ func runCheck(cmd *cobra.Command, o *options) error {
 	color := output.ColorEnabled() && !o.noColor
 	r := output.NewRenderer(cmd.OutOrStdout(), color, o.verbose)
 	r.Banner(local.Name, remoteName, version())
+	start := time.Now()
 	results := engine.Run(cmd.Context(), ctx, checks.All(), r.Emit)
+	elapsed := time.Since(start)
 
 	for _, t := range checks.PeeringInfo(cmd.Context(), ctx) {
 		r.Table(t)
 	}
 	r.FactSheet(ctx.Facts())
 	r.Table(output.BuildResultsTable(results))
-	r.Summary(results)
+	r.Summary(results, elapsed)
 	os.Exit(output.ExitCode(results))
 	return nil
 }

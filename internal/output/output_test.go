@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JosephITA/flyingfish/internal/engine"
 )
@@ -30,9 +31,9 @@ func TestRendererShowsDiagnosisAndRemediation(t *testing.T) {
 		r.Emit(res)
 	}
 	r.FactSheet([]engine.Fact{{Label: "gateway endpoint", Value: "1.2.3.4:51840", Command: "nc -vzu 1.2.3.4 51840"}})
-	r.Summary(sample())
+	r.Summary(sample(), 340*time.Millisecond)
 	out := buf.String()
-	for _, want := range []string{"GATEWAY EXPOSURE", "GW-02", "diagnosis", "LoadBalancer pending", "1 passed", "1 failed"} {
+	for _, want := range []string{"GATEWAY EXPOSURE", "GW-02", "diagnosis", "LoadBalancer pending", "1 passed", "1 failed", "340ms"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}

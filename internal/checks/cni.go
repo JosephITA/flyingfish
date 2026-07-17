@@ -21,9 +21,11 @@ func cniChecks() []engine.Check {
 					return skip("cannot list kube-system daemonsets: " + err.Error())
 				}
 				var warns, evidence []string
+				var allNames []string
 				cni := "unknown"
 				for _, ds := range dss.Items {
 					name := ds.Name
+					allNames = append(allNames, name)
 					switch {
 					case strings.Contains(name, "calico-node"):
 						cni = "calico"
@@ -52,6 +54,19 @@ func cniChecks() []engine.Check {
 					case strings.Contains(name, "flannel"), strings.Contains(name, "weave"), strings.Contains(name, "antrea"), strings.Contains(name, "kube-router"):
 						cni = strings.Split(name, "-")[0]
 					}
+				}
+				if cni == "unknown" {
+					// Don't shrug — hand over the raw daemonset names so
+					// someone who knows their own cluster can ID it in 2 seconds.
+					evidence = append([]string{"couldn't fingerprint the CNI from known patterns (calico/cilium/flannel/weave/antrea/kube-router)"}, evidence...)
+					if len(allNames) > 0 {
+						evidence = append(evidence, "kube-system daemonsets present: "+strings.Join(allNames, ", "))
+					} else {
+						evidence = append(evidence, "no daemonsets found in kube-system at all")
+					}
+					return warn("could not identify the CNI in use — none of the known interference patterns could be checked",
+						"identify your CNI from the daemonset list above and check it manually for Liqo interference (interface autodetection grabbing liqo* devices, eBPF/kube-proxy-replacement bypassing nftables)",
+						evidence...)
 				}
 				evidence = append([]string{"detected CNI: " + cni}, evidence...)
 				if len(warns) > 0 {

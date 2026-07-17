@@ -55,7 +55,10 @@ func reflectionChecks() []engine.Check {
 						"the network configuration changed after reflection; unoffload/re-offload the namespace or re-peer so EndpointSlices are re-translated",
 						orphans...)
 				}
-				return pass(fmt.Sprintf("%d endpoint address(es) in offloaded namespaces are all routable", total))
+				if total == 0 {
+					return skip(fmt.Sprintf("no reflected endpoints exist yet in %d offloaded namespace(s) (no running services with remote backends)", len(offloaded)))
+				}
+				return pass(fmt.Sprintf("%d reflected endpoint address(es) checked, all routable", total))
 			},
 		},
 		{

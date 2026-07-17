@@ -134,14 +134,25 @@ func apiChecks() []engine.Check {
 				if len(eps) == 0 {
 					return skip("no Identity kubeconfig secrets found in tenant namespaces (nothing to test — this side may be the provider)")
 				}
-				var down, up []string
+				// Multiple Identity secrets (control-plane, resourceslice, ...) commonly
+				// point at the same API server address — dial each unique address once.
+				bySrv := map[string][]string{}
+				var order []string
 				for _, ep := range eps {
 					c.AddFact("provider API server (TCP/TLS)", ep.server,
 						fmt.Sprintf("curl -k --max-time 5 %s/version", ep.server))
-					if err := dialTLS(ctx, ep.server); err != nil {
-						down = append(down, fmt.Sprintf("%s (%s): %v", ep.server, ep.secret, err))
+					if _, seen := bySrv[ep.server]; !seen {
+						order = append(order, ep.server)
+					}
+					bySrv[ep.server] = append(bySrv[ep.server], ep.secret)
+				}
+				var down, up []string
+				for _, server := range order {
+					secrets := bySrv[server]
+					if err := dialTLS(ctx, server); err != nil {
+						down = append(down, fmt.Sprintf("%s (%s): %v", server, strings.Join(secrets, ", "), err))
 					} else {
-						up = append(up, ep.server)
+						up = append(up, fmt.Sprintf("%s (%s)", server, strings.Join(secrets, ", ")))
 					}
 				}
 				if len(down) > 0 {
@@ -273,7 +284,7 @@ func dialTLS(ctx context.Context, server string) error {
 	if u.Port() == "" {
 		host = net.JoinHostPort(u.Hostname(), "443")
 	}
-	d := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}, NetDialer: &net.Dialer{Timeout: 5 * time.Second}}
+	d := tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}, NetDialer: &net.Dialer{Timeout: 3 * time.Second}}
 	conn, err := d.DialContext(ctx, "tcp", host)
 	if err != nil {
 		return err

@@ -7,10 +7,21 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/JosephITA/flyingfish/internal/engine"
 )
+
+// formatElapsed renders sub-second runs as milliseconds ("340ms") and
+// everything else with one decimal of seconds ("4.2s") — dev-tool convention
+// (Vite, Turbo, esbuild) that a performance-conscious audience expects.
+func formatElapsed(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%dms", d.Milliseconds())
+	}
+	return fmt.Sprintf("%.1fs", d.Seconds())
+}
 
 const banner = `
     ___ _       _             ___ _     _
@@ -188,7 +199,7 @@ func statusIcon(s engine.Status) string {
 }
 
 // Summary prints counters and the primary diagnosis.
-func (r *Renderer) Summary(results []engine.Result) {
+func (r *Renderer) Summary(results []engine.Result, elapsed time.Duration) {
 	var pass, warnN, failN, skipN int
 	for _, res := range results {
 		switch res.Status {
@@ -203,8 +214,9 @@ func (r *Renderer) Summary(results []engine.Result) {
 		}
 	}
 	fmt.Fprintf(r.W, "\n %s────────────────────────────────────────%s\n", r.p.dim, r.p.reset)
-	fmt.Fprintf(r.W, " %s%d passed%s ⋅ %s%d warnings%s ⋅ %s%d failed%s ⋅ %s%d skipped%s\n",
-		r.p.green, pass, r.p.reset, r.p.yellow, warnN, r.p.reset, r.p.red, failN, r.p.reset, r.p.dim, skipN, r.p.reset)
+	fmt.Fprintf(r.W, " %s%d passed%s ⋅ %s%d warnings%s ⋅ %s%d failed%s ⋅ %s%d skipped%s %s(%s)%s\n",
+		r.p.green, pass, r.p.reset, r.p.yellow, warnN, r.p.reset, r.p.red, failN, r.p.reset, r.p.dim, skipN, r.p.reset,
+		r.p.dim, formatElapsed(elapsed), r.p.reset)
 
 	if d := engine.Diagnosis(results); d != nil {
 		icon, color := r.icon(d.Status)
