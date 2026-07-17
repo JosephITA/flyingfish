@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/JosephITA/flyingfish/internal/engine"
 )
@@ -109,6 +110,83 @@ func (r *Renderer) FactSheet(facts []engine.Fact) {
 	}
 }
 
+// Table renders a markdown-style table — deliberately uncolored, so it
+// pastes cleanly into GitHub/Slack/any chat, and unambiguous in a screenshot.
+func (r *Renderer) Table(t engine.Table) {
+	if len(t.Rows) == 0 {
+		return
+	}
+	widths := make([]int, len(t.Headers))
+	for i, h := range t.Headers {
+		widths[i] = utf8.RuneCountInString(h)
+	}
+	for _, row := range t.Rows {
+		for i, cell := range row {
+			if i >= len(widths) {
+				continue
+			}
+			if w := utf8.RuneCountInString(cell); w > widths[i] {
+				widths[i] = w
+			}
+		}
+	}
+	if t.Title != "" {
+		fmt.Fprintf(r.W, "\n %s%s%s\n\n", r.p.bold, t.Title, r.p.reset)
+	}
+	writeRow := func(cells []string) {
+		fmt.Fprint(r.W, "|")
+		for i, cell := range cells {
+			pad := widths[i] - utf8.RuneCountInString(cell)
+			if pad < 0 {
+				pad = 0
+			}
+			fmt.Fprintf(r.W, " %s%s |", cell, strings.Repeat(" ", pad))
+		}
+		fmt.Fprintln(r.W)
+	}
+	writeRow(t.Headers)
+	fmt.Fprint(r.W, "|")
+	for _, w := range widths {
+		fmt.Fprintf(r.W, "-%s-|", strings.Repeat("-", w))
+	}
+	fmt.Fprintln(r.W)
+	for _, row := range t.Rows {
+		writeRow(row)
+	}
+}
+
+// BuildResultsTable turns the check results into a copy-paste-friendly
+// summary table — one row per check, truncated to a single-line detail.
+func BuildResultsTable(results []engine.Result) engine.Table {
+	t := engine.Table{Title: "All Checks — Summary", Headers: []string{"Layer", "ID", "Check", "Status", "Detail"}}
+	for _, res := range results {
+		icon := statusIcon(res.Status)
+		detail := strings.ReplaceAll(res.Detail, "\n", " ")
+		const maxLen = 70
+		if utf8.RuneCountInString(detail) > maxLen {
+			r := []rune(detail)
+			detail = string(r[:maxLen-1]) + "…"
+		}
+		t.Rows = append(t.Rows, []string{
+			layerTitles[res.Layer], res.ID, res.Name, fmt.Sprintf("%s %s", icon, res.Status), detail,
+		})
+	}
+	return t
+}
+
+func statusIcon(s engine.Status) string {
+	switch s {
+	case engine.Pass:
+		return "✓"
+	case engine.Warn:
+		return "!"
+	case engine.Fail:
+		return "✗"
+	default:
+		return "–"
+	}
+}
+
 // Summary prints counters and the primary diagnosis.
 func (r *Renderer) Summary(results []engine.Result) {
 	var pass, warnN, failN, skipN int
@@ -179,7 +257,7 @@ func wrapIndent(s string, indent int) string {
 }
 
 // JSON emits the machine-readable contract (spec §6).
-func JSON(w io.Writer, results []engine.Result, facts []engine.Fact, version string) error {
+func JSON(w io.Writer, results []engine.Result, facts []engine.Fact, peeringInfo []engine.Table, version string) error {
 	type summary struct {
 		Pass, Warn, Fail, Skip int
 	}
@@ -197,11 +275,12 @@ func JSON(w io.Writer, results []engine.Result, facts []engine.Fact, version str
 		}
 	}
 	payload := map[string]any{
-		"version":   version,
-		"results":   results,
-		"facts":     facts,
-		"summary":   s,
-		"diagnosis": engine.Diagnosis(results),
+		"version":      version,
+		"results":      results,
+		"facts":        facts,
+		"peering_info": peeringInfo,
+		"summary":      s,
+		"diagnosis":    engine.Diagnosis(results),
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

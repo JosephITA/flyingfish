@@ -71,7 +71,9 @@ flyingfish check --peer milan -o json
 
 Passive by default — FlyingFish only **reads** cluster state (plus `wg show` inside existing gateway pods and harmless UDP probe packets toward the gateway endpoint). It never modifies Liqo resources.
 
-Every report ends with a **manual test cheat sheet**: the concrete IPs, ports, CIDRs and MTU it discovered, each with a ready-to-paste command (`curl`, `nc`, `ping -M do`) so you can reproduce any finding by hand.
+If a live peering exists, the report also includes a **peering resource dump** — ForeignClusters (role, age), ResourceSlices (CPU/memory/pod quotas requested vs. accepted), Identities, Tenants, NamespaceOffloadings, and virtual node capacity — as plain markdown tables.
+
+Every report ends with a **manual test cheat sheet** (the concrete IPs, ports, CIDRs and MTU it discovered, each with a ready-to-paste command like `curl`, `nc`, `ping -M do`) and an **"All Checks — Summary" table**: every check, its status, and a one-line result, in a single markdown table you can screenshot or paste straight into a chat with another developer.
 
 ## Roadmap
 

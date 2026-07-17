@@ -43,7 +43,8 @@ func TestRendererShowsDiagnosisAndRemediation(t *testing.T) {
 func TestJSONContract(t *testing.T) {
 	var buf bytes.Buffer
 	facts := []engine.Fact{{Label: "gateway endpoint", Value: "1.2.3.4:51840", Command: "nc -vzu 1.2.3.4 51840"}}
-	if err := JSON(&buf, sample(), facts, "test"); err != nil {
+	peeringInfo := []engine.Table{{Title: "Foreign Clusters", Headers: []string{"Name"}, Rows: [][]string{{"peer-a"}}}}
+	if err := JSON(&buf, sample(), facts, peeringInfo, "test"); err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
