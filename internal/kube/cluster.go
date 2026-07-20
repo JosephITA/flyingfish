@@ -21,11 +21,11 @@ import (
 )
 
 type Cluster struct {
-	Name       string
-	Config     *rest.Config
-	Clientset  kubernetes.Interface
-	Dynamic    dynamic.Interface
-	Discovery  discovery.DiscoveryInterface
+	Name      string
+	Config    *rest.Config
+	Clientset kubernetes.Interface
+	Dynamic   dynamic.Interface
+	Discovery discovery.DiscoveryInterface
 
 	mu        sync.Mutex
 	gvrs      map[string]schema.GroupVersionResource

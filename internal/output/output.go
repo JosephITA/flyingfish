@@ -147,6 +147,11 @@ func (r *Renderer) Table(t engine.Table) {
 	writeRow := func(cells []string) {
 		fmt.Fprint(r.W, "|")
 		for i, cell := range cells {
+			if i >= len(widths) {
+				// Ragged row (more cells than headers): drop the extras
+				// rather than panic — the width pass above ignores them too.
+				continue
+			}
 			pad := widths[i] - utf8.RuneCountInString(cell)
 			if pad < 0 {
 				pad = 0

@@ -127,10 +127,12 @@ func envChecks() []engine.Check {
 					return warn("cannot list nodes: "+err.Error(), "")
 				}
 				var old []string
+				physical := 0
 				for _, n := range nodes.Items {
 					if n.Labels["liqo.io/type"] == "virtual-node" {
 						continue
 					}
+					physical++
 					if kv := n.Status.NodeInfo.KernelVersion; kernelTooOld(kv) {
 						old = append(old, fmt.Sprintf("%s: kernel %s", n.Name, kv))
 					}
@@ -139,7 +141,7 @@ func envChecks() []engine.Check {
 					return warn("nodes below Liqo's minimum kernel 5.10 (nftables features)",
 						"upgrade the node OS/kernel; Liqo's firewall rules may silently fail on these nodes", old...)
 				}
-				return pass(fmt.Sprintf("all %d physical nodes at kernel >= 5.10", len(nodes.Items)))
+				return pass(fmt.Sprintf("all %d physical nodes at kernel >= 5.10", physical))
 			},
 		},
 	}
@@ -164,9 +166,23 @@ func liqoVersion(ctx context.Context, kc *kube.Cluster) (string, error) {
 		return "", err
 	}
 	for _, ctr := range dep.Spec.Template.Spec.Containers {
-		if i := strings.LastIndex(ctr.Image, ":"); i > 0 {
-			return ctr.Image[i+1:], nil
+		if tag, ok := imageTag(ctr.Image); ok {
+			return tag, nil
 		}
 	}
-	return "", fmt.Errorf("no tagged image on liqo-controller-manager")
+	return "", fmt.Errorf("no tagged image on liqo-controller-manager (digest-pinned or untagged)")
+}
+
+// imageTag extracts the tag from a container image reference. A tag colon only
+// counts after the last slash (the registry host may carry a port), and a
+// digest suffix (img@sha256:…) is stripped first. Reports false when no usable
+// tag is present — a digest fragment is not a version.
+func imageTag(image string) (string, bool) {
+	if i := strings.Index(image, "@"); i >= 0 {
+		image = image[:i]
+	}
+	if i := strings.LastIndex(image, ":"); i > strings.LastIndex(image, "/") {
+		return image[i+1:], true
+	}
+	return "", false
 }

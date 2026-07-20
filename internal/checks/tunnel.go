@@ -256,17 +256,27 @@ func tunnelMTUs(ctx context.Context, c *engine.Ctx, k *kube.Cluster) ([]int, []s
 	return mtus, evidence
 }
 
+// sameInts reports whether a and b hold exactly the same set of values
+// (order and duplicates ignored). Both directions must be checked: a ⊆ b
+// alone would miss extra values on the b side.
 func sameInts(a, b []int) bool {
-	set := map[int]bool{}
+	as := map[int]bool{}
 	for _, x := range a {
-		set[x] = true
+		as[x] = true
 	}
+	bs := map[int]bool{}
 	for _, y := range b {
-		if !set[y] {
+		bs[y] = true
+	}
+	if len(as) == 0 || len(as) != len(bs) {
+		return false
+	}
+	for x := range as {
+		if !bs[x] {
 			return false
 		}
 	}
-	return len(set) > 0
+	return true
 }
 
 // wgContainer picks the WireGuard container of a gateway pod, falling back to

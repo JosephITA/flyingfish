@@ -74,10 +74,20 @@ func reflectionChecks() []engine.Check {
 				}
 				var notReady []string
 				for _, n := range nodes.Items {
+					sawReady := false
 					for _, cond := range n.Status.Conditions {
-						if cond.Type == corev1.NodeReady && cond.Status != corev1.ConditionTrue {
+						if cond.Type != corev1.NodeReady {
+							continue
+						}
+						sawReady = true
+						if cond.Status != corev1.ConditionTrue {
 							notReady = append(notReady, fmt.Sprintf("%s: Ready=%s (%s)", n.Name, cond.Status, cond.Message))
 						}
+					}
+					if !sawReady {
+						// No NodeReady condition at all is not "Ready" — the
+						// virtual kubelet has not reported status yet.
+						notReady = append(notReady, fmt.Sprintf("%s: no NodeReady condition reported yet (virtual kubelet still starting?)", n.Name))
 					}
 				}
 				if len(notReady) > 0 {

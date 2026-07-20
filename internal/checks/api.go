@@ -20,10 +20,10 @@ import (
 // identityEndpoint is a provider API-server endpoint extracted from an
 // Identity kubeconfig secret in a tenant namespace.
 type identityEndpoint struct {
-	secret   string
-	server   string
-	certExp  time.Time
-	hasCert  bool
+	secret  string
+	server  string
+	certExp time.Time
+	hasCert bool
 }
 
 func apiChecks() []engine.Check {
@@ -186,7 +186,10 @@ func apiChecks() []engine.Check {
 			ID: "API-03", Name: "Identity certificates not expiring", Layer: "api", DependsOn: []string{"ENV-03"},
 			Run: func(ctx context.Context, c *engine.Ctx) engine.Result {
 				eps, err := identityEndpoints(ctx, c, cl(c.Local))
-				if err != nil || len(eps) == 0 {
+				if err != nil {
+					return warn("cannot inspect Identity kubeconfig secrets: "+err.Error(), "")
+				}
+				if len(eps) == 0 {
 					return skip("no Identity kubeconfig secrets to inspect")
 				}
 				var expiring []string

@@ -75,3 +75,17 @@ func TestExitCodes(t *testing.T) {
 		t.Error("pass should map to exit 0")
 	}
 }
+
+func TestTableToleratesRaggedRows(t *testing.T) {
+	var buf bytes.Buffer
+	r := NewRenderer(&buf, false, false)
+	// More cells than headers must not panic; extras are dropped.
+	r.Table(engine.Table{
+		Headers: []string{"A", "B"},
+		Rows:    [][]string{{"1", "2", "3"}, {"x", "y"}},
+	})
+	out := buf.String()
+	if !strings.Contains(out, "| 1 | 2 |") || !strings.Contains(out, "| x | y |") {
+		t.Errorf("unexpected ragged table rendering:\n%s", out)
+	}
+}

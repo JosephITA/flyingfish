@@ -70,7 +70,15 @@ func gatewayChecks() []engine.Check {
 							}
 						}
 					case corev1.ServiceTypeNodePort:
-						nodes, _ := k.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+						for _, p := range s.Spec.Ports {
+							evidence = append(evidence, fmt.Sprintf("%s/%s: NodePort %d/%s", s.Namespace, s.Name, p.NodePort, p.Protocol))
+						}
+						nodes, err := k.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+						if err != nil {
+							// Don't silently skip the public-IP analysis — say so.
+							evidence = append(evidence, "cannot list nodes to check for public ExternalIPs: "+err.Error())
+							continue
+						}
 						allPrivate := true
 						for _, n := range nodes.Items {
 							for _, a := range n.Status.Addresses {
@@ -78,9 +86,6 @@ func gatewayChecks() []engine.Check {
 									allPrivate = false
 								}
 							}
-						}
-						for _, p := range s.Spec.Ports {
-							evidence = append(evidence, fmt.Sprintf("%s/%s: NodePort %d/%s", s.Namespace, s.Name, p.NodePort, p.Protocol))
 						}
 						if allPrivate && len(nodes.Items) > 0 {
 							problems = append(problems, fmt.Sprintf("%s/%s: NodePort service but no node has a public ExternalIP — peer must share this private network", s.Namespace, s.Name))
@@ -308,6 +313,16 @@ func compareClientServer(ctx context.Context, c *engine.Ctx, clientSide, serverS
 		r := fail("GatewayClient endpoint does not match what the GatewayServer advertises",
 			"the classic stale-endpoint failure: the server Service changed (new LB IP / NodePort) after peering. Re-run `liqoctl network connect` or patch the GatewayClient spec.endpoint",
 			append(mismatches, evidence...)...)
+		return &r
+	}
+	if len(serverAddrs) == 0 {
+		// Clients exist but the server side advertises nothing (or its
+		// gatewayservers could not be read) — the match cannot be verified.
+		// Never claim a verified match we did not perform.
+		r := warn(fmt.Sprintf("%d GatewayClient(s) on %s dial an endpoint, but %s advertises no gateway endpoint to compare against — the client/server endpoint match cannot be verified",
+			len(clients), clientSide.Name, serverSide.Name),
+			"GW-02/GW-03 on the server side explain why nothing is advertised (or its gatewayservers could not be read — RBAC?); fix exposure there first, then re-check",
+			evidence...)
 		return &r
 	}
 	if len(evidence) > 0 {

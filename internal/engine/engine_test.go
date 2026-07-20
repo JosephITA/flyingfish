@@ -83,12 +83,47 @@ func TestCheckTimeout(t *testing.T) {
 		ID: "T", Name: "T", Layer: "env",
 		Run: func(ctx context.Context, _ *Ctx) Result {
 			<-ctx.Done()
-			time.Sleep(time.Hour) // never returns in time
 			return Result{Status: Pass}
 		},
 	}
 	results := Run(context.Background(), c, []Check{chk}, nil)
-	if results[0].Status != Fail {
-		t.Fatalf("expected timeout Fail, got %s", results[0].Status)
+	// A timeout is inconclusive: Warn, not Fail — and it must not cascade.
+	if results[0].Status != Warn {
+		t.Fatalf("expected timeout Warn, got %s", results[0].Status)
+	}
+}
+
+func TestTimeoutDoesNotSkipDependents(t *testing.T) {
+	c := NewCtx(fakeCluster("local"), nil, "", 50*time.Millisecond)
+	checks := []Check{
+		{ID: "SLOW", Name: "SLOW", Layer: "env", Run: func(ctx context.Context, _ *Ctx) Result {
+			<-ctx.Done()
+			return Result{Status: Pass}
+		}},
+		mk("DEP", "gateway", Pass, "SLOW"),
+	}
+	results := Run(context.Background(), c, checks, nil)
+	got := map[string]Status{}
+	for _, r := range results {
+		got[r.ID] = r.Status
+	}
+	if got["SLOW"] != Warn || got["DEP"] != Pass {
+		t.Fatalf("timeout should warn without skipping dependents, got %v", got)
+	}
+}
+
+func TestUnknownLayerSurfacesAsFailure(t *testing.T) {
+	c := NewCtx(fakeCluster("local"), nil, "", time.Second)
+	results := Run(context.Background(), c, []Check{mk("X", "tunnelz", Pass)}, nil)
+	if len(results) != 1 || results[0].Status != Fail {
+		t.Fatalf("unknown-layer check should be reported as Fail, got %+v", results)
+	}
+}
+
+func TestDanglingDependencySurfacesAsFailure(t *testing.T) {
+	c := NewCtx(fakeCluster("local"), nil, "", time.Second)
+	results := Run(context.Background(), c, []Check{mk("Y", "env", Pass, "NOPE-99")}, nil)
+	if len(results) != 1 || results[0].Status != Fail {
+		t.Fatalf("dangling DependsOn should be reported as Fail, got %+v", results)
 	}
 }

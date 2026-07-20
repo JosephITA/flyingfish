@@ -74,6 +74,14 @@ func newCheck() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "check",
 		Short: "Run the passive diagnostic suite against one or two clusters",
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			switch o.format {
+			case "text", "json":
+				return nil
+			default:
+				return fmt.Errorf("invalid --output %q: must be text or json", o.format)
+			}
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runCheck(cmd, o)
 		},

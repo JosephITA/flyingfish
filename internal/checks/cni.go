@@ -51,8 +51,14 @@ func cniChecks() []engine.Check {
 								warns = append(warns, "Cilium kube-proxy replacement (eBPF/socket-LB) can bypass the nftables rules Liqo installs; if cross-cluster service traffic misbehaves, test with socket-LB scoped down")
 							}
 						}
-					case strings.Contains(name, "flannel"), strings.Contains(name, "weave"), strings.Contains(name, "antrea"), strings.Contains(name, "kube-router"):
-						cni = strings.Split(name, "-")[0]
+					case strings.Contains(name, "flannel"):
+						cni = "flannel"
+					case strings.Contains(name, "weave"):
+						cni = "weave"
+					case strings.Contains(name, "antrea"):
+						cni = "antrea"
+					case strings.Contains(name, "kube-router"):
+						cni = "kube-router"
 					}
 				}
 				if cni == "unknown" {

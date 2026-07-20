@@ -126,24 +126,62 @@ type memoEntry[T any] struct {
 
 // Run executes all checks layer by layer and returns results in order.
 // onResult, if non-nil, is invoked as each check completes (for live output).
+// Catalog mistakes fail loudly instead of silently: a check with a dangling
+// DependsOn is reported as Fail, and a check whose Layer is not in Layers
+// (which would never run) is appended as Fail at the end.
 func Run(ctx context.Context, c *Ctx, checks []Check, onResult func(Result)) []Result {
 	byID := map[string]Status{}
 	var results []Result
+	emit := func(res Result) {
+		results = append(results, res)
+		if onResult != nil {
+			onResult(res)
+		}
+	}
+
+	catalogErrs := catalogErrors(checks)
 
 	for _, layer := range Layers {
 		for _, chk := range checks {
 			if chk.Layer != layer {
 				continue
 			}
-			res := runOne(ctx, c, chk, byID)
-			byID[chk.ID] = res.Status
-			results = append(results, res)
-			if onResult != nil {
-				onResult(res)
+			var res Result
+			if msg, bad := catalogErrs[chk.ID]; bad {
+				res = Result{ID: chk.ID, Name: chk.Name, Layer: chk.Layer, Cluster: c.Local.DisplayName(),
+					Status: Fail, Detail: "check catalog error: " + msg}
+			} else {
+				res = runOne(ctx, c, chk, byID)
 			}
+			byID[chk.ID] = res.Status
+			emit(res)
+		}
+	}
+	for _, chk := range checks {
+		if _, ran := byID[chk.ID]; !ran {
+			emit(Result{ID: chk.ID, Name: chk.Name, Layer: chk.Layer, Cluster: c.Local.DisplayName(),
+				Status: Fail, Detail: fmt.Sprintf("check catalog error: layer %q is not in engine.Layers %v — the check never ran", chk.Layer, Layers)})
 		}
 	}
 	return results
+}
+
+// catalogErrors flags checks referencing dependencies no check provides — a
+// typo'd DependsOn would otherwise silently never gate.
+func catalogErrors(checks []Check) map[string]string {
+	known := map[string]bool{}
+	for _, chk := range checks {
+		known[chk.ID] = true
+	}
+	errs := map[string]string{}
+	for _, chk := range checks {
+		for _, dep := range chk.DependsOn {
+			if !known[dep] {
+				errs[chk.ID] = fmt.Sprintf("unknown dependency %q", dep)
+			}
+		}
+	}
+	return errs
 }
 
 func runOne(ctx context.Context, c *Ctx, chk Check, done map[string]Status) Result {
@@ -183,8 +221,12 @@ func runOne(ctx context.Context, c *Ctx, chk Check, done map[string]Status) Resu
 		}
 		return r
 	case <-cctx.Done():
-		base.Status = Fail
-		base.Detail = fmt.Sprintf("check timed out after %s", c.Timeout)
+		// A timeout is inconclusive, not a broken link: report Warn so it
+		// neither cascades (Fail would skip dependents) nor hijacks the
+		// diagnosis on what may just be a slow or distant API server.
+		base.Status = Warn
+		base.Detail = fmt.Sprintf("check timed out after %s — inconclusive, not necessarily a failure", c.Timeout)
+		base.Remediation = "on a slow or loaded API server this can be a false alarm; re-run with a larger --timeout (e.g. --timeout 60s) to confirm"
 		return base
 	}
 }
